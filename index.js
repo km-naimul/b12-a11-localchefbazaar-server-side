@@ -26,6 +26,7 @@ async function run() {
 
     const db = client.db('local_chef_db');
     const createMealsCollection = db.collection('createMeals');
+    const reviewsCollection = db.collection('reviews');
 
     // ================= CREATE MEALS =================
 
@@ -101,6 +102,26 @@ async function run() {
 
       res.send(result);
     });
+
+    //
+    
+// get reviews by foodId
+app.get('/reviews', async (req, res) => {
+  const foodId = req.query.foodId;
+  const result = await reviewsCollection
+    .find({ foodId })
+    .sort({ date: -1 })
+    .toArray();
+  res.send(result);
+});
+
+// post review
+app.post('/reviews', async (req, res) => {
+  const review = req.body;
+  review.date = new Date();
+  const result = await reviewsCollection.insertOne(review);
+  res.send(result);
+});
 
     // ping check
     await client.db("admin").command({ ping: 1 });
