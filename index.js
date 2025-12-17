@@ -6,6 +6,16 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 const app = express();
 const port = process.env.PORT || 3000;
+const crypto = require("crypto");
+const { runInNewContext } = require('vm');
+
+function generateTrackingId() {
+    const prefix = "ORDR;"
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+
+    return `${prefix}-${date}-${random}`;
+}
 
 // ================= MIDDLEWARE =================
 app.use(cors());
@@ -207,13 +217,29 @@ app.post("/orders", async (req, res) => {
        
         const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-        console.log('session retrieve', session)
+        // console.log('session retrieve', session)
+        const transactionId = session.payment_intent;
+        const query = {transactionId: transactionId}
+
+        const paymentExist = await paymentCollection.findOne(query);
+        console.log(paymentExist);
+        if (paymentExist){
+            return res.send({
+                message: 'already exists',
+                 transactionId,
+                 trackingId: paymentExist.trackingId
+                })
+        }
+
+        const trackingId = generateTrackingId()
+
         if(session.payment_status === 'paid'){
             const id = session.metadata.orderId;
             const query = {_id: new ObjectId(id)}
             const update = {
                 $set: {
                     paymentStatus: 'paid',
+                    trackingId: trackingId
                 }
             }
 
@@ -228,17 +254,36 @@ app.post("/orders", async (req, res) => {
                 transactionId: session.payment_intent,
                 paymentStatus: session.payment_status,
                 paidAt: new Date(),
-                trackingId: ''
+                trackingId: trackingId
 
             }
 
             if(session.payment_status === 'paid'){
                 const resultPayment = await paymentCollection.insertOne(payment)
-                res.send({success: true, modifyOrder: result, paymentInfo:resultPayment })
+                res.send({success: true,
+                 modifyOrder: result, 
+                 trackingId: trackingId,
+                 transactionId: session.payment_intent,
+                 paymentInfo:resultPayment 
+                }
+            )
             }      
         }
 
         res.send({success: false})
+    })
+
+    // payment history
+
+    app.get('/payments', async(req, res  ) => {
+        const email = req.query.email;
+        const query = {}
+        if (email){
+            query.customerEmail = email
+        }
+        const cursor = paymentCollection.find(query);
+        const result = await cursor.toArray();
+        res.send(result);
     })
 
     // ================= PING =================
