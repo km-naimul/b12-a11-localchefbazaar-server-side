@@ -73,7 +73,40 @@ async function run() {
     const reviewsCollection = db.collection("reviews");
     const favoritesCollection = db.collection("favorites");
     const ordersCollection = db.collection("orders");
+    const userCollection = db.collection("users");
     const paymentCollection = db.collection('payments');
+    const roleRequestCollection = db.collection("roleRequests");
+
+
+    // user related api
+    app.get('/users',verifyFBToken, async(req, res) =>{
+        const cursor = userCollection.find();
+        const result = await cursor.toArray();
+        res.send(result);
+    })
+
+
+    app.post('/users', async(req, res) =>{
+        const user = req.body;
+        user.role = 'user';
+        user.status = 'active';
+        user.createdAt = new Date();
+
+        const result = await userCollection.insertOne(user);
+        res.send(result);
+    })
+
+    app.patch("/users/fraud/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await userCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { status: "fraud" } }
+  );
+
+  res.send(result);
+});
+
 
 
     // ================= MEALS =================
@@ -199,6 +232,83 @@ app.post("/orders", async (req, res) => {
         const result = await ordersCollection.findOne(query);
         res.send(result);
     })
+
+    // ================= ROLE REQUEST =================
+app.post("/role-requests", async (req, res) => {
+  const request = req.body;
+
+  const roleRequest = {
+    userName: request.userName,
+    userEmail: request.userEmail,
+    requestType: request.requestType, // chef / admin
+    requestStatus: "pending",
+    requestTime: new Date(),
+  };
+
+  const result = await roleRequestCollection.insertOne(roleRequest);
+  res.send(result);
+});
+
+// ================= APPROVE / REJECT ROLE REQUEST =================
+app.patch("/role-requests/:id", async (req, res) => {
+  const id = req.params.id;
+  const { status } = req.body; // approved | rejected
+
+  // 1️⃣ Find request
+  const request = await roleRequestCollection.findOne({
+    _id: new ObjectId(id),
+  });
+
+  if (!request) {
+    return res.status(404).send({ message: "Request not found" });
+  }
+
+  // 2️⃣ Update request status
+  await roleRequestCollection.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        requestStatus: status,
+        decisionTime: new Date(),
+      },
+    }
+  );
+
+  // 3️⃣ If approved → update user role
+  if (status === "approved") {
+    await userCollection.updateOne(
+      { email: request.userEmail },
+      {
+        $set: {
+          role: request.requestType, // chef | admin
+        },
+      }
+    );
+  }
+
+  res.send({ success: true });
+});
+
+
+// ================= GET ROLE REQUESTS (ADMIN) =================
+app.get("/role-requests", async (req, res) => {
+  const status = req.query.status;
+
+  const query = {};
+  if (status) {
+    query.requestStatus = status; // pending / approved / rejected
+  }
+
+  const result = await roleRequestCollection
+    .find(query)
+    .sort({ requestTime: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+
+
 
     // ✅ GET USER ORDERS
     app.get("/orders", async (req, res) => {
