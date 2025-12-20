@@ -77,6 +77,19 @@ async function run() {
     const paymentCollection = db.collection('payments');
     const roleRequestCollection = db.collection("roleRequests");
 
+    //middle more
+    const verifyAdmin = async(req, res, next) =>{
+      const email = req.decoded_email;
+      const query = {email};
+      const user = await userCollection.findOne(query);
+
+      if(!user || user.role !== 'admin'){
+        return res.status(403).send({message: 'forbidden access'});
+      }
+
+        next();
+    }
+
 
     // user related api
     app.get('/users',verifyFBToken, async(req, res) =>{
@@ -85,6 +98,29 @@ async function run() {
         res.send(result);
     })
 
+    app.get('/users/:id', async(req, res) =>{
+
+    })
+
+    app.patch('/users/:id/role', verifyFBToken , verifyAdmin , async (req, res) =>{
+      const id = req.params.id;
+      const roleInfo = req.body;
+      const query = { _id: new ObjectId(id)}
+      const updateDoc = {
+        $set: {
+          role: roleInfo.role
+        }
+      }
+      const result = await userCollection.updateOne(query, updateDoc)
+      res.send(result);
+    })
+
+    app.get('/users/:email/role', async (req, res) => {
+        const email = req.params.email;
+        const query = {email}
+        const user = await userCollection.findOne (query); 
+        res.send({ role: user?.role || 'user'})
+    })
 
     app.post('/users', async(req, res) =>{
         const user = req.body;
@@ -250,7 +286,7 @@ app.post("/role-requests", async (req, res) => {
 });
 
 // ================= APPROVE / REJECT ROLE REQUEST =================
-app.patch("/role-requests/:id", async (req, res) => {
+app.patch("/role-requests/:id", verifyFBToken, verifyAdmin , async (req, res) => {
   const id = req.params.id;
   const { status } = req.body; // approved | rejected
 
