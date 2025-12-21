@@ -116,11 +116,11 @@ async function run() {
     })
 
     app.get('/users/:email/role', async (req, res) => {
-        const email = req.params.email;
-        const query = {email}
-        const user = await userCollection.findOne (query); 
-        res.send({ role: user?.role || 'user'})
-    })
+  const email = req.params.email;
+  const user = await userCollection.findOne({ email });
+  res.send(user || {});
+});
+
 
     app.post('/users', async(req, res) =>{
         const user = req.body;
@@ -142,7 +142,6 @@ async function run() {
 
   res.send(result);
 });
-
 
 
     // ================= MEALS =================
@@ -171,16 +170,34 @@ async function run() {
     });
 
     app.put("/createMeals/:id", async (req, res) => {
-      const id = req.params.id;
-      const updateDoc = {
-        $set: req.body,
-      };
-      const result = await createMealsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        updateDoc
-      );
-      res.send(result);
-    });
+  try {
+    const id = req.params.id;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid meal id" });
+    }
+
+    const updateDoc = {
+      $set: {
+        foodName: req.body.foodName,
+        price: req.body.price,
+        rating: req.body.rating,
+        ingredients: req.body.ingredients,
+        estimatedDeliveryTime: req.body.estimatedDeliveryTime,
+      },
+    };
+
+    const result = await createMealsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      updateDoc
+    );
+
+    res.send(result);
+  } catch (error) {
+    console.error("Update meal error:", error);
+    res.status(500).send({ message: "Failed to update meal" });
+  }
+});
 
     app.delete("/createMeals/:id", async (req, res) => {
       const result = await createMealsCollection.deleteOne({
@@ -260,6 +277,46 @@ app.post("/orders", async (req, res) => {
   }
 });
 
+
+// ✅ UPDATE ORDER STATUS (chef action)
+app.patch("/orders/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+  const { orderStatus } = req.body;
+
+  const result = await ordersCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { orderStatus } }
+  );
+
+  res.send(result);
+});
+
+
+// ================= GET CHEF ORDERS =================
+app.get("/orders", async (req, res) => {
+  const { email, chefId } = req.query;
+
+  const query = {};
+
+  // 👉 User dashboard orders
+  if (email) {
+    query.userEmail = email;
+  }
+
+  // 👉 Chef dashboard orders
+  if (chefId) {
+    query.chefId = chefId;
+  }
+
+  const result = await ordersCollection
+    .find(query)
+    .sort({ orderTime: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+
 //payment
 
     app.get('/orders/:id', async(req, res) =>{
@@ -286,11 +343,10 @@ app.post("/role-requests", async (req, res) => {
 });
 
 // ================= APPROVE / REJECT ROLE REQUEST =================
-app.patch("/role-requests/:id", verifyFBToken, verifyAdmin , async (req, res) => {
+app.patch("/role-requests/:id", async (req, res) => {
   const id = req.params.id;
   const { status } = req.body; // approved | rejected
 
-  // 1️⃣ Find request
   const request = await roleRequestCollection.findOne({
     _id: new ObjectId(id),
   });
@@ -299,7 +355,7 @@ app.patch("/role-requests/:id", verifyFBToken, verifyAdmin , async (req, res) =>
     return res.status(404).send({ message: "Request not found" });
   }
 
-  // 2️⃣ Update request status
+  // ✅ request status update
   await roleRequestCollection.updateOne(
     { _id: new ObjectId(id) },
     {
@@ -310,20 +366,40 @@ app.patch("/role-requests/:id", verifyFBToken, verifyAdmin , async (req, res) =>
     }
   );
 
-  // 3️⃣ If approved → update user role
+  // ✅ ONLY IF APPROVED
   if (status === "approved") {
-    await userCollection.updateOne(
-      { email: request.userEmail },
-      {
-        $set: {
-          role: request.requestType, // chef | admin
-        },
-      }
-    );
+    // 👉 CHEF REQUEST
+    if (request.requestType === "chef") {
+      const chefId =
+        "chef-" + Math.floor(1000 + Math.random() * 9000);
+
+      await userCollection.updateOne(
+        { email: request.userEmail },
+        {
+          $set: {
+            role: "chef",
+            chefId: chefId,
+          },
+        }
+      );
+    }
+
+    // 👉 ADMIN REQUEST
+    if (request.requestType === "admin") {
+      await userCollection.updateOne(
+        { email: request.userEmail },
+        {
+          $set: {
+            role: "admin",
+          },
+        }
+      );
+    }
   }
 
   res.send({ success: true });
 });
+
 
 
 // ================= GET ROLE REQUESTS (ADMIN) =================
@@ -416,6 +492,7 @@ app.get("/role-requests", async (req, res) => {
             const update = {
                 $set: {
                     paymentStatus: 'paid',
+                    orderStatus: 'pending',
                     trackingId: trackingId
                 }
             }
