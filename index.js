@@ -209,34 +209,121 @@ async function run() {
     // ================= REVIEWS =================
 
     app.get("/reviews", async (req, res) => {
-      const result = await reviewsCollection
-        .find({ foodId: req.query.foodId })
-        .sort({ date: -1 })
-        .toArray();
-      res.send(result);
-    });
+  const query = {};
+  if (req.query.foodId) {
+    query.foodId = req.query.foodId;
+  }
+  if (req.query.userEmail) {
+    query.userEmail = req.query.userEmail;
+  }
+
+  const result = await reviewsCollection
+    .find(query)
+    .sort({ date: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+app.patch("/reviews/:id", async (req, res) => {
+  const id = req.params.id;
+  const { rating, comment } = req.body;
+
+  const result = await reviewsCollection.updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        rating,
+        comment,
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  res.send(result);
+});
+
+
+app.delete("/reviews/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await reviewsCollection.deleteOne({
+    _id: new ObjectId(id),
+  });
+
+  res.send(result);
+});
+
+
 
     app.post("/reviews", async (req, res) => {
-      const review = req.body;
-      review.date = new Date();
-      const result = await reviewsCollection.insertOne(review);
-      res.send(result);
-    });
+  const review = req.body;
+
+  const newReview = {
+    foodId: review.foodId,
+    mealName: review.mealName || "",
+    userEmail: review.userEmail,   // ✅ REQUIRED
+    reviewerName: review.reviewerName,
+    reviewerImage: review.reviewerImage,
+    rating: review.rating,
+    comment: review.comment,
+    date: new Date(),
+  };
+
+  const result = await reviewsCollection.insertOne(newReview);
+  res.send(result);
+});
+
 
     // ================= FAVORITES =================
 
-    app.get("/favorites", async (req, res) => {
-      const { mealId, userEmail } = req.query;
-      const exists = await favoritesCollection.findOne({ mealId, userEmail });
-      res.send(exists);
-    });
+// 👉 Get all favorites for a user
+app.get("/favorites", async (req, res) => {
+  const { userEmail } = req.query;
 
-    app.post("/favorites", async (req, res) => {
-      const favorite = req.body;
-      favorite.addedTime = new Date();
-      const result = await favoritesCollection.insertOne(favorite);
-      res.send(result);
-    });
+  const query = {};
+  if (userEmail) {
+    query.userEmail = userEmail;
+  }
+
+  const result = await favoritesCollection
+    .find(query)
+    .sort({ addedTime: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+
+
+// 👉 Add favorite (unchanged)
+app.post("/favorites", async (req, res) => {
+  const favorite = req.body;
+
+  const exists = await favoritesCollection.findOne({
+    mealId: favorite.mealId,
+    userEmail: favorite.userEmail,
+  });
+
+  if (exists) {
+    return res.status(409).send({ message: "Already exists" });
+  }
+
+  favorite.addedTime = new Date();
+  const result = await favoritesCollection.insertOne(favorite);
+  res.send(result);
+});
+
+
+// 👉 Delete favorite
+app.delete("/favorites/:id", async (req, res) => {
+  const id = req.params.id;
+  const result = await favoritesCollection.deleteOne({
+    _id: new ObjectId(id),
+  });
+  res.send(result);
+});
+
 
     // ================= ORDERS =================
 
