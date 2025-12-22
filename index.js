@@ -155,12 +155,23 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/createMeals", async (req, res) => {
-      const meal = req.body;
-      meal.createdAt = new Date();
-      const result = await createMealsCollection.insertOne(meal);
-      res.send(result);
+    app.post("/createMeals", verifyFBToken, async (req, res) => {
+  const email = req.decoded_email;
+  const user = await userCollection.findOne({ email });
+
+  if (user?.status === "fraud") {
+    return res.status(403).send({
+      message: "Fraud chefs cannot create meals",
     });
+  }
+
+  const meal = req.body;
+  meal.createdAt = new Date();
+
+  const result = await createMealsCollection.insertOne(meal);
+  res.send(result);
+});
+
 
     app.get("/createMeals/:id", async (req, res) => {
       const result = await createMealsCollection.findOne({
@@ -330,12 +341,17 @@ app.delete("/favorites/:id", async (req, res) => {
 
     // ✅ SAVE ORDER
     // ================== SAVE ORDER ==================
-app.post("/orders", async (req, res) => {
+app.post("/orders", verifyFBToken, async (req, res) => {
   try {
     const order = req.body;
 
-    if (!order.foodId || !order.userEmail || !order.quantity) {
-      return res.status(400).send({ message: "Invalid order data" });
+    // 🔥 USER STATUS CHECK
+    const user = await userCollection.findOne({ email: order.userEmail });
+
+    if (user?.status === "fraud") {
+      return res.status(403).send({
+        message: "Fraud users cannot place orders",
+      });
     }
 
     const newOrder = {
@@ -344,25 +360,21 @@ app.post("/orders", async (req, res) => {
       price: order.price,
       quantity: order.quantity,
       chefId: order.chefId,
-      paymentStatus: order.paymentStatus || "Pending",
+      paymentStatus: "Pending",
       userEmail: order.userEmail,
       userAddress: order.userAddress,
-      orderStatus: order.orderStatus || "pending",
+      orderStatus: "pending",
       orderTime: new Date(),
     };
 
-    // ✅ FIXED
     const result = await ordersCollection.insertOne(newOrder);
+    res.send(result);
 
-    res.send({
-      insertedId: result.insertedId,
-      message: "Order placed successfully",
-    });
   } catch (error) {
-    console.error("Order save error:", error);
-    res.status(500).send({ message: "Failed to place order" });
+    res.status(500).send({ message: "Order failed" });
   }
 });
+
 
 
 // ✅ UPDATE ORDER STATUS (chef action)
